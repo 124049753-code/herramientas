@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventario UPQ</title><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<section id="loginView" class="login-shell">
+  <div class="login-art">
+    <div class="brand-mark">UPQ</div><p class="eyebrow">GESTIÓN DE LABORATORIOS Y TALLERES</p>
+    <h1>Todo tu inventario,<br><em>en orden.</em></h1>
+    <p class="login-copy">Herramientas, préstamos, devoluciones y adeudos en un solo lugar.</p>
+    <div class="login-workshops">
+      <img src="/assets/lt1.svg" alt="Taller de manufactura"><img src="/assets/lt2.svg" alt="Taller automotriz"><img src="/assets/lt3.svg" alt="Nave técnica">
+    </div>
+  </div>
+  <form id="loginForm" class="login-card">
+    <span class="eyebrow">BIENVENIDO/A</span><h2>Iniciar sesión</h2><p>Alumnos y docentes: usa usuarioupq con contraseña UPQ22.</p>
+    <label>Usuario o matrícula<input id="identifier" autocomplete="username" required placeholder="usuarioupq"></label>
+    <label>Contraseña<input id="password" type="password" autocomplete="current-password" required placeholder="Tu contraseña"></label>
+    <button class="btn primary full" type="submit">Entrar al sistema <span>→</span></button>
+    <div id="loginError" class="error-text"></div>
+    <small>Administración: cuenta admin · Alumnos/docentes: matrícula.</small>
+  </form>
+</section>
+
+<section id="appView" class="app-shell hidden">
+  <aside class="sidebar">
+    <div class="side-brand"><div class="brand-mark small">UPQ</div><div><b>Inventario</b><small>Laboratorios y talleres</small></div></div>
+    <div class="side-user"><div class="avatar" id="avatar">U</div><div><b id="sideName">Usuario</b><small id="sideRole">Nivel</small></div></div>
+    <nav id="nav">
+      <div class="nav-caption">GENERAL</div>
+      <button class="nav-item" data-page="dashboard"><span>⌂</span>Resumen</button>
+      <button class="nav-item" data-page="inventory"><span>▦</span>Inventario</button>
+      <div class="nav-caption">MOVIMIENTOS</div>
+      <button class="nav-item" data-page="request"><span>＋</span>Solicitar herramienta</button>
+      <button class="nav-item admin-operation" data-page="loans"><span>↗</span>Préstamos activos</button>
+      <button class="nav-item admin-operation" data-page="returns"><span>↩</span>Devoluciones</button>
+      <button class="nav-item admin-operation" data-page="debts"><span>◇</span>Adeudos <i id="debtBadge"></i></button>
+      <div class="nav-caption admin-only">ADMINISTRACIÓN</div>
+      <button class="nav-item admin-only" data-page="reports"><span>▤</span>Reportes</button>
+      <button class="nav-item admin-only" data-page="users"><span>♙</span>Usuarios y permisos</button>
+    </nav>
+    <div class="side-bottom"><div class="side-note admin-only"><b>Inventario UPQ</b><small>Control responsable de materiales</small></div><button id="logoutBtn" class="logout">↪ Cerrar sesión</button></div>
+  </aside>
+  <main class="main-area">
+    <header class="topbar"><div><div class="crumb" id="crumb">UPQ · RESUMEN</div><h1 id="pageTitle">Resumen</h1></div><div class="top-right"><span class="today" id="today"></span><div class="top-avatar" id="profileBtn">U</div></div></header>
+    <div id="notice" class="notice hidden"></div>
+    <section id="pageContent" class="page-content"></section>
+    <footer>Universidad Politécnica de Querétaro · Sistema de inventario</footer>
+  </main>
+</section>
+<div id="modal" class="modal hidden"><div class="modal-backdrop" id="modalBackdrop"></div><div class="modal-card"><button class="modal-x" id="modalClose">×</button><div id="modalBody"></div></div></div>
+<script src="/app.js"></script>
+</body></html>

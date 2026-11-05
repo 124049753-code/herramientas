@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="220" viewBox="0 0 260 220">
+    <rect width="260" height="220" rx="18" fill="#f8f5f7"/><rect x="10" y="10" width="240" height="170" rx="14" fill="#fff" stroke="#eadde5"/>
+    <ellipse cx="130" cy="183" rx="72" ry="8" fill="#dfe4e8"/><path d="M115 80 L155 35 L177 45 L145 105 L205 150 L190 170 L130 130 L90 180 L70 165 L112 110 L85 55 L105 42Z" fill="hsl(108,58%,42%)"/><path d="M120 85 L150 52 M130 125 L178 155" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+    <rect x="10" y="190" width="240" height="25" rx="7" fill="hsl(108,58%,42%)"/><text x="130" y="207" font-family="Arial,sans-serif" font-size="9" font-weight="700" text-anchor="middle" fill="#fff">FLEXOMETRO-LUFKIN</text>
+    </svg>

@@ -1,0 +1,16 @@
+{
+  "name": "inventario-upq",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Sistema local de inventario, préstamos y adeudos UPQ",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "sql.js": "^1.13.0"
+  }
+}

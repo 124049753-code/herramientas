@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="220" viewBox="0 0 260 220">
+    <rect width="260" height="220" rx="18" fill="#f8f5f7"/><rect x="10" y="10" width="240" height="170" rx="14" fill="#fff" stroke="#eadde5"/>
+    <ellipse cx="130" cy="183" rx="72" ry="8" fill="#dfe4e8"/><rect x="55" y="65" width="150" height="95" rx="14" fill="hsl(41,58%,42%)"/><rect x="75" y="85" width="110" height="35" rx="5" fill="#eaf3f5"/><rect x="82" y="132" width="15" height="12" rx="2" fill="hsl(76,48%,68%)"/><rect x="105" y="132" width="15" height="12" rx="2" fill="hsl(76,48%,68%)"/><rect x="128" y="132" width="15" height="12" rx="2" fill="hsl(76,48%,68%)"/><rect x="151" y="132" width="15" height="12" rx="2" fill="hsl(76,48%,68%)"/>
+    <rect x="10" y="190" width="240" height="25" rx="7" fill="hsl(41,58%,42%)"/><text x="130" y="207" font-family="Arial,sans-serif" font-size="9" font-weight="700" text-anchor="middle" fill="#fff">BROCAS PARA ROUTER VASTAGO 1/2</text>
+    </svg>
