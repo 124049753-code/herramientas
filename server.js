@@ -69,13 +69,18 @@ async function init(){
   CREATE TABLE IF NOT EXISTS requests(
     id INTEGER PRIMARY KEY AUTOINCREMENT, folio TEXT UNIQUE NOT NULL, user_id INTEGER NOT NULL,
     requested_at TEXT DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL DEFAULT 'pendiente',
-    career TEXT, due_date TEXT, notes TEXT, requester_name TEXT, requester_registration TEXT,
+    career TEXT, due_date TEXT, notes TEXT, requester_name TEXT, requester_registration TEXT, teacher_name TEXT, delivered_at TEXT, return_started_at TEXT, return_completed_at TEXT,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
   CREATE TABLE IF NOT EXISTS request_items(
     id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER NOT NULL, inventory_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL, returned_quantity INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(request_id) REFERENCES requests(id), FOREIGN KEY(inventory_id) REFERENCES inventory(id)
+  );
+  CREATE TABLE IF NOT EXISTS return_events(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER NOT NULL, request_item_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL, damaged INTEGER NOT NULL DEFAULT 0, description TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(request_id) REFERENCES requests(id), FOREIGN KEY(request_item_id) REFERENCES request_items(id)
   );
   CREATE TABLE IF NOT EXISTS debts(
     id INTEGER PRIMARY KEY AUTOINCREMENT, request_item_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
@@ -84,10 +89,16 @@ async function init(){
     delivered_at TEXT, FOREIGN KEY(request_item_id) REFERENCES request_items(id),
     FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(inventory_id) REFERENCES inventory(id)
   );`);
+  // Repara cantidades heredadas después de crear la tabla inventory.
+  db.run("UPDATE inventory SET quantity_total=MAX(0,quantity_total), quantity_available=MAX(0,MIN(quantity_available,MAX(0,quantity_total)))");
   // Compatibilidad con bases creadas en versiones anteriores.
   const requestCols=rows("PRAGMA table_info(requests)").map(x=>x.name);
   if(!requestCols.includes("requester_name")) db.run("ALTER TABLE requests ADD COLUMN requester_name TEXT");
   if(!requestCols.includes("requester_registration")) db.run("ALTER TABLE requests ADD COLUMN requester_registration TEXT");
+  if(!requestCols.includes("teacher_name")) db.run("ALTER TABLE requests ADD COLUMN teacher_name TEXT");
+  if(!requestCols.includes("delivered_at")) db.run("ALTER TABLE requests ADD COLUMN delivered_at TEXT");
+  if(!requestCols.includes("return_started_at")) db.run("ALTER TABLE requests ADD COLUMN return_started_at TEXT");
+  if(!requestCols.includes("return_completed_at")) db.run("ALTER TABLE requests ADD COLUMN return_completed_at TEXT");
   // Importa el Excel solo si la base está vacía: nunca duplica materiales.
   const count=one("SELECT COUNT(*) n FROM inventory").n;
   if(count===0){
@@ -160,7 +171,7 @@ app.post("/api/inventory",auth,allow("admin","A"),(req,res)=>{
 app.post("/api/inventory/:id/movement",auth,allow("admin","A"),(req,res)=>{
   const type=req.body.type, n=Number(req.body.quantity), item=one("SELECT * FROM inventory WHERE id=? AND active=1",[req.params.id]);
   if(!item||!["alta","baja"].includes(type)||!Number.isInteger(n)||n<1) return res.status(400).json({error:"Movimiento o cantidad inválida."});
-  if(type==="baja"&&item.quantity_available<n) return res.status(400).json({error:"No puedes dar de baja más unidades que las disponibles."});
+  if(type==="baja"&&(item.quantity_available<n||item.quantity_total<n)) return res.status(400).json({error:"No puedes dar de baja más unidades que las existencias físicas disponibles."});
   tx(()=>{
     const delta=type==="alta"?n:-n;
     db.run("UPDATE inventory SET quantity_total=quantity_total+?,quantity_available=quantity_available+? WHERE id=?",[delta,delta,item.id]);
@@ -189,17 +200,20 @@ app.patch("/api/users/:id",auth,allow("admin"),(req,res)=>{
 });
 
 app.post("/api/requests",auth,(req,res)=>{
-  const items=Array.isArray(req.body.items)?req.body.items:[], {career,due_date,notes,requester_name,requester_registration}=req.body;
-  const personName=String(requester_name||"").trim(), personRegistration=String(requester_registration||"").trim();
-  if(req.user.registration===SHARED_USER && (!personName||!personRegistration))
-    return res.status(400).json({error:"Escribe el nombre completo y la matrícula del solicitante."});
+  const items=Array.isArray(req.body.items)?req.body.items:[], {career,due_date,notes,requester_name,requester_registration,teacher_name}=req.body;
+  const personName=String(requester_name|| (req.user.registration===SHARED_USER?"":req.user.full_name)).trim();
+  const personRegistration=String(requester_registration|| (req.user.registration===SHARED_USER?"":req.user.registration)).trim();
+  const teacher=String(teacher_name||"").trim(), area=String(career||req.user.career||"").trim();
+  if(!personName||!personRegistration||!teacher||!area||!due_date)
+    return res.status(400).json({error:"Completa todos los campos obligatorios: nombre, matrícula, carrera/área, docente responsable y fecha estimada de devolución."});
   if(!items.length) return res.status(400).json({error:"Agrega al menos una herramienta."});
   const clean=items.map(x=>({id:Number(x.inventory_id),qty:Number(x.quantity)}));
   if(clean.some(x=>!Number.isInteger(x.id)||!Number.isInteger(x.qty)||x.qty<1)) return res.status(400).json({error:"Revisa las herramientas y cantidades."});
-  for(const x of clean){const it=one("SELECT * FROM inventory WHERE id=? AND active=1",[x.id]);if(!it||it.quantity_available<x.qty)return res.status(400).json({error:`Existencia insuficiente para ${it?.name||"un material"}.`});}
+  if(new Set(clean.map(x=>x.id)).size!==clean.length) return res.status(400).json({error:"No repitas el mismo material; ajusta su cantidad en una sola fila."});
+  for(const x of clean){const it=one("SELECT * FROM inventory WHERE id=? AND active=1",[x.id]);if(!it||it.quantity_available<x.qty)return res.status(400).json({error:`Existencia insuficiente para ${it?.name||"un material"}. Disponible: ${it?.quantity_available??0}.`});}
   const folio="UPQ-"+Date.now();
   const requestId=tx(()=>{
-    db.run("INSERT INTO requests(folio,user_id,career,due_date,notes,status,requester_name,requester_registration) VALUES(?,?,?,?,?,'pendiente',?,?)",[folio,req.user.id,career||req.user.career||null,due_date||null,notes||null,personName||req.user.full_name,personRegistration||req.user.registration]);
+    db.run("INSERT INTO requests(folio,user_id,career,due_date,notes,status,requester_name,requester_registration,teacher_name) VALUES(?,?,?,?,?,'pendiente',?,?,?)",[folio,req.user.id,area,due_date,notes||null,personName,personRegistration,teacher]);
     const id=one("SELECT id FROM requests WHERE folio=?",[folio]).id;
     clean.forEach(x=>db.run("INSERT INTO request_items(request_id,inventory_id,quantity) VALUES(?,?,?)",[id,x.id,x.qty]));
     return id;
@@ -211,7 +225,7 @@ app.get("/api/requests",auth,(req,res)=>{
   const q=`%${req.query.q||""}%`;
   let sql=`SELECT r.*,COALESCE(r.requester_name,u.full_name) full_name,
     COALESCE(r.requester_registration,u.registration) registration,u.role,
-    u.career user_career,
+    u.career user_career,r.teacher_name,r.delivered_at,
     GROUP_CONCAT(i.name || ' × ' || ri.quantity, ' · ') materials
     FROM requests r JOIN users u ON u.id=r.user_id JOIN request_items ri ON ri.request_id=r.id JOIN inventory i ON i.id=ri.inventory_id`;
   const params=[];
@@ -230,7 +244,7 @@ app.post("/api/requests/:id/approve",auth,allow("admin","A"),(req,res)=>{
       db.run("UPDATE inventory SET quantity_available=quantity_available-? WHERE id=?",[it.quantity,it.inventory_id]);
       db.run("INSERT INTO movements(inventory_id,type,quantity,notes,actor_id) VALUES(?,?,?,?,?)",[it.inventory_id,"préstamo",it.quantity,r.folio,req.user.id]);
     });
-    db.run("UPDATE requests SET status='prestamo_activo' WHERE id=?",[r.id]);
+    db.run("UPDATE requests SET status='prestamo_activo',delivered_at=CURRENT_TIMESTAMP WHERE id=?",[r.id]);
   });
   res.json({message:"Préstamo aprobado y existencias descontadas."});
 });
@@ -249,30 +263,60 @@ app.get("/api/loans",auth,allow("admin","A","B"),(req,res)=>{
 });
 app.get("/api/returns",auth,allow("admin","A","B"),(req,res)=>{
   const q=`%${req.query.q||""}%`;
-  res.json(rows(`SELECT r.id,r.folio,r.due_date,u.full_name,u.registration,
+  res.json(rows(`SELECT r.id,r.folio,r.due_date,r.teacher_name,r.delivered_at,r.return_started_at,r.return_completed_at,COALESCE(r.requester_name,u.full_name) full_name,COALESCE(r.requester_registration,u.registration) registration,
     GROUP_CONCAT(i.name || ' × ' || (ri.quantity-ri.returned_quantity),' · ') materials
     FROM requests r JOIN users u ON u.id=r.user_id JOIN request_items ri ON ri.request_id=r.id JOIN inventory i ON i.id=ri.inventory_id
     WHERE r.status='prestamo_activo' AND ri.returned_quantity<ri.quantity AND (COALESCE(r.requester_name,u.full_name) LIKE ? OR COALESCE(r.requester_registration,u.registration) LIKE ?)
     GROUP BY r.id ORDER BY r.due_date`,[q,q]));
 });
+app.post("/api/returns/:id/start",auth,allow("admin","A"),(req,res)=>{
+  const request=one("SELECT id,status FROM requests WHERE id=? AND status='prestamo_activo'",[req.params.id]);
+  if(!request) return res.status(404).json({error:"Préstamo activo no encontrado."});
+  run("UPDATE requests SET return_started_at=CASE WHEN return_completed_at IS NULL THEN COALESCE(return_started_at,CURRENT_TIMESTAMP) ELSE CURRENT_TIMESTAMP END,return_completed_at=NULL WHERE id=?",[request.id]);
+  res.json({message:"Se registró la hora de entrada de la devolución."});
+});
 app.get("/api/returns/:id/items",auth,allow("admin","A","B"),(req,res)=>{
-  res.json(rows(`SELECT ri.id item_id,ri.quantity-ri.returned_quantity remaining,i.name FROM request_items ri JOIN inventory i ON i.id=ri.inventory_id WHERE ri.request_id=? AND ri.returned_quantity<ri.quantity`,[req.params.id]));
+  res.json(rows(`SELECT ri.id item_id,ri.quantity,ri.returned_quantity,ri.quantity-ri.returned_quantity remaining,i.name,i.id inventory_id
+    FROM request_items ri JOIN inventory i ON i.id=ri.inventory_id WHERE ri.request_id=? AND ri.returned_quantity<ri.quantity ORDER BY i.name`,[req.params.id]));
 });
 app.post("/api/returns/:id",auth,allow("admin","A"),(req,res)=>{
-  const item=one("SELECT ri.*,i.name FROM request_items ri JOIN inventory i ON i.id=ri.inventory_id WHERE ri.id=? AND ri.request_id=?",[req.body.itemId,req.params.id]);
-  const qty=Number(req.body.quantity), damaged=Number(req.body.damaged||0);
-  if(!item||!Number.isInteger(qty)||qty<1||qty>item.quantity-item.returned_quantity) return res.status(400).json({error:"Cantidad devuelta no válida."});
-  if(damaged<0||damaged>qty||!Number.isInteger(damaged)|| (damaged>0&&!req.body.description)) return res.status(400).json({error:"Describe el daño y revisa la cantidad dañada."});
-  const reqRow=one("SELECT user_id FROM requests WHERE id=?",[req.params.id]);
+  const items=Array.isArray(req.body.items)?req.body.items:[];
+  if(!items.length) return res.status(400).json({error:"Marca al menos un material que se recibió."});
+  const request=one("SELECT * FROM requests WHERE id=? AND status='prestamo_activo'",[req.params.id]);
+  if(!request) return res.status(404).json({error:"Préstamo activo no encontrado."});
+  const clean=items.map(x=>({itemId:Number(x.itemId),quantity:Number(x.quantity),damaged:Number(x.damaged||0),description:String(x.description||"").trim(),debtDue:x.debtDue||null}));
+  if(clean.some(x=>!Number.isInteger(x.itemId)||!Number.isInteger(x.quantity)||x.quantity<1||!Number.isInteger(x.damaged)||x.damaged<0||x.damaged>x.quantity||(x.damaged>0&&!x.description)))
+    return res.status(400).json({error:"Revisa las cantidades recibidas y la descripción de cada daño."});
+  const ids=clean.map(x=>x.itemId); if(new Set(ids).size!==ids.length) return res.status(400).json({error:"Un material aparece más de una vez."});
+  for(const x of clean){const it=one("SELECT ri.*,i.name,i.quantity_total FROM request_items ri JOIN inventory i ON i.id=ri.inventory_id WHERE ri.id=? AND ri.request_id=?",[x.itemId,request.id]);if(!it||x.quantity>it.quantity-it.returned_quantity||x.damaged>it.quantity_total)return res.status(400).json({error:`Cantidad no válida para ${it?.name||"el material"}.`});}
   tx(()=>{
-    db.run("UPDATE request_items SET returned_quantity=returned_quantity+? WHERE id=?",[qty,item.id]);
-    const good=qty-damaged;
-    db.run("UPDATE inventory SET quantity_available=quantity_available+? WHERE id=?",[good,item.inventory_id]);
-    if(damaged>0) db.run("INSERT INTO debts(request_item_id,user_id,inventory_id,quantity,description,due_date) VALUES(?,?,?,?,?,?)",[item.id,reqRow.user_id,item.inventory_id,damaged,req.body.description,req.body.debtDue||null]);
-    const pending=one("SELECT COALESCE(SUM(quantity-returned_quantity),0) n FROM request_items WHERE request_id=?",[req.params.id]).n;
-    if(!pending) db.run("UPDATE requests SET status='devuelto' WHERE id=?",[req.params.id]);
+    for(const x of clean){
+      const it=one("SELECT ri.*,i.id inventory_id FROM request_items ri JOIN inventory i ON i.id=ri.inventory_id WHERE ri.id=?",[x.itemId]);
+      db.run("UPDATE request_items SET returned_quantity=returned_quantity+? WHERE id=?",[x.quantity,it.id]);
+      const good=x.quantity-x.damaged;
+      db.run("UPDATE inventory SET quantity_available=quantity_available+?,quantity_total=quantity_total-? WHERE id=?",[good,x.damaged,it.inventory_id]);
+      db.run("INSERT INTO return_events(request_id,request_item_id,quantity,damaged,description) VALUES(?,?,?,?,?)",[request.id,it.id,x.quantity,x.damaged,x.description||null]);
+      if(x.damaged>0) db.run("INSERT INTO debts(request_item_id,user_id,inventory_id,quantity,description,due_date) VALUES(?,?,?,?,?,?)",[it.id,request.user_id,it.inventory_id,x.damaged,x.description,x.debtDue]);
+    }
+    const pending=one("SELECT COALESCE(SUM(quantity-returned_quantity),0) n FROM request_items WHERE request_id=?",[request.id]).n;
+    db.run("UPDATE requests SET return_completed_at=CURRENT_TIMESTAMP WHERE id=?",[request.id]);
+    if(!pending) db.run("UPDATE requests SET status='devuelto' WHERE id=?",[request.id]);
   });
-  res.json({message:damaged?"Devolución registrada y adeudo creado.":"Devolución registrada correctamente."});
+  res.json({message:"Devolución parcial o completa registrada. Las existencias y adeudos fueron actualizados."});
+});
+app.get("/api/history",auth,allow("admin","A","B"),(req,res)=>{
+  const month=String(req.query.month||"");
+  if(month&&!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({error:"Mes no válido."});
+  const params=[]; let where="";
+  if(month){where="WHERE strftime('%Y-%m',r.requested_at)=?";params.push(month);}
+  const data=rows(`SELECT r.id,r.folio,r.requested_at,r.delivered_at,r.return_started_at,r.return_completed_at,r.status,r.career,r.teacher_name,
+    COALESCE(r.requester_name,u.full_name) full_name,COALESCE(r.requester_registration,u.registration) registration,
+    GROUP_CONCAT(i.name || ' × ' || ri.quantity,' · ') materials,
+    (SELECT MAX(re.created_at) FROM return_events re WHERE re.request_id=r.id) last_return_at,
+    (SELECT COALESCE(SUM(re.quantity),0) FROM return_events re WHERE re.request_id=r.id) returned_units
+    FROM requests r JOIN users u ON u.id=r.user_id JOIN request_items ri ON ri.request_id=r.id JOIN inventory i ON i.id=ri.inventory_id
+    ${where} GROUP BY r.id ORDER BY r.requested_at DESC`,params);
+  res.json(data);
 });
 app.get("/api/debts",auth,allow("admin","A","B"),(req,res)=>{
   const q=`%${req.query.q||""}%`;
